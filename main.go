@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os/user"
 	"regexp"
 	"strings"
 
@@ -13,31 +14,38 @@ import (
 	"github.com/quiteawful/qairc"
 )
 
-const (
-	useragent = "windows:subredditcrawler:dev (by /u/txtinput"
-)
-
 var (
 	images map[string]map[string]int
 )
 
 type options struct {
-	Nick    string
-	User    string
-	Channel string
-	Network string
-	Port    int
+	Nick      string
+	User      string
+	Channel   string
+	Network   string
+	Port      int
+	TLS       bool
+	Useragent string
 
 	Session *geddit.Session
 }
 
 func parseArgs() *options {
+	u, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	if u.Name == "" { // might be blank on windows
+		u.Name = "imgbot"
+	}
+
 	a := &options{
-		Nick:    "ImgBotdev",
-		User:    "marduk",
-		Channel: "ownbox",
-		Network: "irc.quiteawful.net",
-		Port:    6697,
+		Nick:    "ImgBot",
+		User:    u.Name,
+		Channel: "imgbot",
+		Network: "irc.quakenet.org",
+		Port:    6667,
+		TLS:     false,
 	}
 
 	flag.StringVar(&a.Nick, "nick", a.Nick, "nickname of the bot")
@@ -45,13 +53,15 @@ func parseArgs() *options {
 	flag.StringVar(&a.Channel, "channel", a.Channel, "channel we join the bot")
 	flag.StringVar(&a.Network, "network", a.Network, "hostname of the net we want to join")
 	flag.IntVar(&a.Port, "port", a.Port, "the port on we connect")
+	flag.BoolVar(&a.TLS, "tls", a.TLS, "wether to use tls or not to connect to the server")
 	flag.Parse()
 
 	if a.Channel[0] != '#' {
 		a.Channel = "#" + a.Channel
 	}
+	a.Useragent = fmt.Sprintf("windows:imgbotforirc:dev (by /u/%s)", a.Nick)
 
-	a.Session = geddit.NewSession(useragent)
+	a.Session = geddit.NewSession(a.Useragent)
 
 	return a
 }
@@ -68,7 +78,7 @@ func main() {
 func RunIrc(opt *options) {
 	ctx := qairc.QAIrc(opt.Nick, opt.User)
 	ctx.Address = fmt.Sprintf("%s:%d", opt.Network, opt.Port)
-	ctx.UseTLS = true
+	ctx.UseTLS = opt.TLS
 	ctx.TLSCfg = &tls.Config{InsecureSkipVerify: true}
 
 	err := ctx.Run()
@@ -76,6 +86,8 @@ func RunIrc(opt *options) {
 		log.Fatalf("error while running irc context: %v\n", err)
 		return
 	}
+
+	log.Printf("Connected to %s (tls: %v) to channel: %s Nick: %s User: %s\n", opt.Network, opt.TLS, opt.Channel, opt.Nick, opt.User)
 
 	for {
 		m, status := <-ctx.Out
